@@ -2,6 +2,7 @@
 
 import sqlite3 as sql
 import argparse
+import pyshark
 
 dbName = ""
 conn = None
@@ -47,10 +48,28 @@ def InsertProbe(mac, ssid):
 	
 	conn.commit()
 
+def Listen(interface):
+	# capture = pyshark.LiveCapture(interface='en1',display_filter='wlan.fc.type_subtype eq 4 or wlan.fc.type_subtype eq 5')
+	# capture = pyshark.LiveCapture(interface='en1', bpf_filter='subtype probereq')
+	capture = pyshark.LiveCapture(interface=interface, bpf_filter='subtype probereq')
+
+	for packet in capture.sniff_continuously():
+		print "New packet:", packet
+
 def main():
 	ParseArgs()
 	InitDB()
-	InsertProbe('00:00:00:00:00:00', 'TEST0000')
+	try :
+		#InsertProbe('00:00:00:00:00:00', 'TEST0000')
+
+		Listen('en0')
+	except lite.Error, e:
+    	print "Error %s:" % e.args[0]
+    	sys.exit(1)
+    	
+	finally :
+		if conn:
+			conn.close()
 
 
 if __name__ == "__main__":
