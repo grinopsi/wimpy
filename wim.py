@@ -64,10 +64,9 @@ def main():
 
 		Listen('en0')
 	except lite.Error, e:
-    	print "Error %s:" % e.args[0]
-    	sys.exit(1)
-    	
-	finally :
+		print "Error %s:" % e.args[0]
+		sys.exit(1)
+	finally:
 		if conn:
 			conn.close()
 
