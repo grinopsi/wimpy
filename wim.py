@@ -51,19 +51,25 @@ def InsertProbe(mac, ssid):
 def Listen(interface):
 	# capture = pyshark.LiveCapture(interface='en1',display_filter='wlan.fc.type_subtype eq 4 or wlan.fc.type_subtype eq 5')
 	# capture = pyshark.LiveCapture(interface='en1', bpf_filter='subtype probereq')
-	capture = pyshark.LiveCapture(interface=interface, bpf_filter='subtype probereq')
+	
+	try:
+		#capture = pyshark.LiveCapture(interface=interface, bpf_filter='subtype probereq')
+		capture = pyshark.LiveCapture(interface=interface)
+		capture.set_debug()
 
-	for packet in capture.sniff_continuously():
-		print "New packet:", packet
+		for packet in capture.sniff_continuously():
+			print "New packet:", packet.eth.destination
+	except pyshark.capture.capture.TSharkCrashException, e:
+		print "Error %s:" % e.args[0]
 
 def main():
 	ParseArgs()
-	InitDB()
+	#InitDB()
 	try :
 		#InsertProbe('00:00:00:00:00:00', 'TEST0000')
 
 		Listen('en0')
-	except lite.Error, e:
+	except sql.Error, e:
 		print "Error %s:" % e.args[0]
 		sys.exit(1)
 	finally:
@@ -73,5 +79,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
