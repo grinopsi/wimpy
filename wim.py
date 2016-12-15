@@ -58,9 +58,14 @@ def Listen(interface):
 		capture.set_debug()
 
 		for packet in capture.sniff_continuously():
-			print "New packet:", packet.eth.destination
+			parsePacket(packet)
+			#print "New packet:", packet.eth.destination
 	except pyshark.capture.capture.TSharkCrashException, e:
 		print "Error %s:" % e.args[0]
+
+def parsePacket(pkt):
+	for line in pkt:
+		print "LINE:", line
 
 def main():
 	ParseArgs()
