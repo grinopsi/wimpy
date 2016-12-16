@@ -3,8 +3,14 @@
 import sqlite3 as sql
 import re
 import argparse
+from multiprocessing import Process
+import subprocess
+import random
 import pyshark
+import time
 import signal
+import logging
+import os, platform
 
 dbName = ""
 conn = None
@@ -29,22 +35,35 @@ def ParseArgs():
 	 	help='Interface to use for sniffing and packet injection')
         parser.add_argument('-v', '--verbose', dest='verbose',required=False, action='store_true')
         parser.add_argument('-debug', '--debug', dest='debug',required=False, action='store_true')
+        parser.add_argument('-disable','--disable',dest='disable_db',required=False, action='store_true', default=False, help='Disable storing in SQLITE database. Suggest enabling verbose output with -v')
 
 	args = parser.parse_args()
 	dbName = args.database
 	iface = args.interface
-	if args.verbose == True: 
-		print args.database
+        if args.debug == True:
+            logging.basicConfig(level=logging.DEBUG)
+            logging.debug("Enabling debug")
+            logging.debug("Debug logging enabled")
+            logging.debug("DEBUG")
+        elif args.verbose == True:
+            logging.basicConfig(level=logging.INFO)
+            logging.info("Verbose logging enabled")
+        logging.info("Using database: %s" % args.database)
+        logging.info("Using interface: %s" % args.interface)
 
 def InitDB():
 	global conn
 	global dbName	
 
 	conn = sql.connect(dbName)
-	
+        
+        logging.debug("Creating table ProbeSummary if needed")
 	conn.execute("CREATE TABLE IF NOT EXISTS ProbeSummary (Mac TEXT, SSID TEXT, Events INT, FirstSeen TEXT, LastSeen TEXT, PRIMARY KEY (Mac, SSID))")
+
+        logging.debug("Creating table ProbeDetail if needed")
 	conn.execute("CREATE TABLE IF NOT EXISTS ProbeDetail (Mac TEXT, SSID TEXT, LastSeen TEXT, PRIMARY KEY (Mac, SSID, LastSeen))")
-	
+        
+        logging.debug("Committing changes to SQLITE database")
 	conn.commit()
 
 
@@ -52,9 +71,10 @@ def InitDB():
 def InsertProbe(mac, ssid):
 	global conn
 	global dbName
-
+        logging.debug("Inserting ProbeDetail Record for [%s] --> <%s>" % (mac, ssid))
 	conn.execute("INSERT INTO ProbeDetail (Mac, SSID, LastSeen) VALUES (?,?,strftime('%Y-%m-%d %H:%M:%f', 'now'))", (mac, ssid))
 
+        logging.debug("Inserting ProbeSummary Record for [%s] --> <%s>" % (mac, ssid))
 	conn.execute("""INSERT OR REPLACE INTO ProbeSummary (Mac, SSID, Events, FirstSeen, LastSeen)
 		VALUES (?, ?, 
 		COALESCE((SELECT Events+1 FROM ProbeSummary WHERE Mac=? AND SSID=?),0),
@@ -62,31 +82,33 @@ def InsertProbe(mac, ssid):
 		strftime('%Y-%m-%d %H:%M:%f', 'now')
 		)
 		""", (mac, ssid, mac, ssid, mac, ssid))
-
+        logging.debug("Committing changes to SQLITE database")
 	conn.commit()
 
 def Listen(interface):
     global capture
 	# capture = pyshark.LiveCapture(interface='en1',display_filter='wlan.fc.type_subtype eq 4 or wlan.fc.type_subtype eq 5')
 	
-	try:
-		capture = pyshark.LiveCapture(interface=interface, bpf_filter='subtype probereq')
-		if args.debug == True:
-			capture.set_debug()
+    try:
+	capture = pyshark.LiveCapture(interface=interface, bpf_filter='subtype probereq')
+	if args.debug == True:
+		capture.set_debug()
         # user sniff_continuously(packet_count=5) to limit number of sniffed packets
-        capture.apply_on_packets(parsePacket)
-		
-	except pyshark.capture.capture.TSharkCrashException, e:
-		print "Error %s:" % e.args[0]
+        capture.apply_on_packets(ParsePacket)
+    except pyshark.capture.capture.TSharkCrashException, e:
+	logging.error("%s:" % e.args[0])
 
-def parsePacket(pkt):
+def ParsePacket(pkt):
         try:
             #print "%s --> %s" % (pkt.wlan.get_field("sa"),pkt.wlan_mgt.get_field("ssid"))
             match = re.search('(([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2}))', pkt.wlan.get_field("sa"))
-            if args.verbose == True:
-                print "[%s] --> <%s>" % (match.group(0), pkt.wlan_mgt.get_field("ssid").rstrip())
+            logging.info("[%s] --> <%s>" % (match.group(0), pkt.wlan_mgt.get_field("ssid").rstrip()))
+
+            if args.disable_db == False:
+                InsertProbe(match.group(0), pkt.wlan_mgt.get_field("ssid").rstrip())
         except AttributeError, ae:
-            print pkt.wlan
+            logging.error(ae)
+            logging.error(pkt.wlan)
             for name in pkt.wlan.field_names:
                 print "[%s] --> %s" % (name, pkt.wlan.get_field(name))
 
@@ -94,7 +116,7 @@ def parsePacket(pkt):
 # https://gist.github.com/dropmeaword/317ad2342ad4fe196f76
 def ChangeChannel(interface, chan):
     """ change wifi channel for interface (supports linux and osx) """
-    print("Hopping to channel {0}".format(chan))
+    logging.debug("Hopping to channel {0}".format(chan))
     if IS_LNX:
         os.system("iwconfig {0} channel {1}".format(interface, chan) )
     elif IS_MAC:
@@ -118,6 +140,7 @@ def ChannelHopper(interface):
 def StopChannelHop():
     global channel_hop_proc
     time.sleep(.5)
+    logging.debug("Terminating channel hop process...")
     channel_hop_proc.terminate()
     channel_hop_proc.join()
 
@@ -128,26 +151,25 @@ def stop(signal, frame):
     StopChannelHop()
     
 def StartChannelHop(interface):
-	global channel_hop_proc
+    global channel_hop_proc
+    logging.debug("Starting channel hop process...")
     channel_hop_proc = Process(target=ChannelHopper, args=(interface,))
     channel_hop_proc.start()
 
 def main():
-	global iface
-	ParseArgs()
+    global iface
+    ParseArgs()
     signal.signal(signal.SIGINT, stop)
     StartChannelHop(iface)
-	InitDB()
-	try :
-		#InsertProbe('00:00:00:00:00:00', 'TEST0000')
-
-		Listen(iface)
-	except sql.Error, e:
-		print "Error %s:" % e.args[0]
-		sys.exit(1)
-	finally:
-		if conn:
-			conn.close()
+    InitDB()
+    try :
+        Listen(iface)
+    except sql.Error, e:
+        print "Error %s:" % e.args[0]
+        sys.exit(1)
+    finally:
+        if conn:
+            conn.close()
 
 
 if __name__ == "__main__":
