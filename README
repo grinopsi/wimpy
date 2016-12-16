@@ -5,9 +5,26 @@ DISCLAIMER
 You are responsible for your decisions and actions related to the use of this software. 
 This software is provided AS-IS. USE AT YOUR OWN RISK
 
+PREREQS
+pyshark -- requires tshark
 
+USAGE 
+usage: wim.py [-h] [-d DATABASE] -i INTERFACE [-v] [-debug] [-disable]
+
+Monitor
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -d DATABASE, --database DATABASE
+                        Name of sqlite database
+  -i INTERFACE, --interface INTERFACE
+                        Interface to use for sniffing and packet injection
+  -v, --verbose
+  -debug, --debug
+  -disable, --disable   Disable storing in SQLITE database. Suggest enabling
+                        verbose output with -v
 ACKNOWLEDGEMENTS
-https://github.com/xme/hoover
-https://github.com/KimiNewt/pyshark
-https://gist.github.com/dropmeaword/317ad2342ad4fe196f76
+pyshark https://github.com/KimiNewt/pyshark
+Hoover https://github.com/xme/hoover
+PhoneProbe https://gist.github.com/dropmeaword/317ad2342ad4fe196f76
 
