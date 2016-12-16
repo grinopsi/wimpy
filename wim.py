@@ -6,15 +6,22 @@ import pyshark
 
 dbName = ""
 conn = None
+args = None
+iface = None
 
 def ParseArgs():
 	global dbName
+	global args
+	global iface
 	parser = argparse.ArgumentParser(description='Monitor')
-	parser.add_argument('--database',
+	parser.add_argument('-d', '--database', dest='database', type=str, required=False, default='wim.py.db'
                     help='Name of sqlite database')
+	 parser.add_argument('-i', '--interface', dest='interface', type=str, required=True, 
+	 	help='Interface to use for sniffing and packet injection')
 
 	args = parser.parse_args()
 	dbName = args.database
+	iface = args.interface
 	print args.database
 
 
@@ -68,12 +75,13 @@ def parsePacket(pkt):
 		print "LINE:", line
 
 def main():
+	global iface
 	ParseArgs()
 	#InitDB()
 	try :
 		#InsertProbe('00:00:00:00:00:00', 'TEST0000')
 
-		Listen('en0')
+		Listen(iface)
 	except sql.Error, e:
 		print "Error %s:" % e.args[0]
 		sys.exit(1)
