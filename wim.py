@@ -11,6 +11,12 @@ conn = None
 args = None
 iface = None
 capture = None
+channel_hop_proc = None
+
+IS_WIN = True if platform.system() == "Windows" else False
+IS_MAC = True if platform.system() == "Darwin" else False
+IS_LNX = True if platform.system() == "Linux" else False
+
 
 def ParseArgs():
 	global dbName
@@ -27,7 +33,8 @@ def ParseArgs():
 	args = parser.parse_args()
 	dbName = args.database
 	iface = args.interface
-	print args.database
+	if args.verbose == True: 
+		print args.database
 
 def InitDB():
 	global conn
@@ -56,20 +63,19 @@ def InsertProbe(mac, ssid):
 		)
 		""", (mac, ssid, mac, ssid, mac, ssid))
 
-	
 	conn.commit()
 
 def Listen(interface):
-        global capture
+    global capture
 	# capture = pyshark.LiveCapture(interface='en1',display_filter='wlan.fc.type_subtype eq 4 or wlan.fc.type_subtype eq 5')
 	
 	try:
 		capture = pyshark.LiveCapture(interface=interface, bpf_filter='subtype probereq')
-		#capture.set_debug()
-                # user sniff_continuously(packet_count=5) to limit number of sniffed packets
-                capture.apply_on_packets(parsePacket)
-		#for packet in capture.sniff_continuously(): 
-		#	parsePacket(packet)
+		if args.debug == True:
+			capture.set_debug()
+        # user sniff_continuously(packet_count=5) to limit number of sniffed packets
+        capture.apply_on_packets(parsePacket)
+		
 	except pyshark.capture.capture.TSharkCrashException, e:
 		print "Error %s:" % e.args[0]
 
@@ -83,16 +89,55 @@ def parsePacket(pkt):
             print pkt.wlan
             for name in pkt.wlan.field_names:
                 print "[%s] --> %s" % (name, pkt.wlan.get_field(name))
+
+# Taken from ProbePhone 
+# https://gist.github.com/dropmeaword/317ad2342ad4fe196f76
+def ChangeChannel(interface, chan):
+    """ change wifi channel for interface (supports linux and osx) """
+    print("Hopping to channel {0}".format(chan))
+    if IS_LNX:
+        os.system("iwconfig {0} channel {1}".format(interface, chan) )
+    elif IS_MAC:
+        subprocess.call( "sudo airport --channel={0}".format(chan).split() )
+
+# Taken from ProbePhone 
+# https://gist.github.com/dropmeaword/317ad2342ad4fe196f76
+# Channel hopper - This code is very similar to that found in airoscapy.py (http://www.thesprawl.org/projects/airoscapy/)
+def ChannelHopper(interface):
+    """ implement channel hopping """
+    while True:
+        try:
+            channel = random.randrange(1,14)
+            ChangeChannel(interface, channel)
+            time.sleep(1)
+        except KeyboardInterrupt:
+            break
+ 
+# Taken from ProbePhone 
+# https://gist.github.com/dropmeaword/317ad2342ad4fe196f76
+def StopChannelHop():
+    global channel_hop_proc
+    time.sleep(.5)
+    channel_hop_proc.terminate()
+    channel_hop_proc.join()
+
 def stop(signal, frame):
     global capture
-    # stop channel hopping
     print "stopping"
+    # stop channel hopping
+    StopChannelHop()
+    
+def StartChannelHop(interface):
+	global channel_hop_proc
+    channel_hop_proc = Process(target=ChannelHopper, args=(interface,))
+    channel_hop_proc.start()
 
 def main():
 	global iface
 	ParseArgs()
-        signal.signal(signal.SIGINT, stop)
-	#InitDB()
+    signal.signal(signal.SIGINT, stop)
+    StartChannelHop(iface)
+	InitDB()
 	try :
 		#InsertProbe('00:00:00:00:00:00', 'TEST0000')
 
