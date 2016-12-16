@@ -1,22 +1,25 @@
 #!/usr/bin/env python
 
 import sqlite3 as sql
+import re
 import argparse
 import pyshark
+import signal
 
 dbName = ""
 conn = None
 args = None
 iface = None
+capture = None
 
 def ParseArgs():
 	global dbName
 	global args
 	global iface
 	parser = argparse.ArgumentParser(description='Monitor')
-	parser.add_argument('-d', '--database', dest='database', type=str, required=False, default='wim.py.db'
+	parser.add_argument('-d', '--database', dest='database', type=str, required=False, default='wim.py.db',
                     help='Name of sqlite database')
-	 parser.add_argument('-i', '--interface', dest='interface', type=str, required=True, 
+        parser.add_argument('-i', '--interface', dest='interface', type=str, required=True, 
 	 	help='Interface to use for sniffing and packet injection')
 
 	args = parser.parse_args()
@@ -56,27 +59,37 @@ def InsertProbe(mac, ssid):
 	conn.commit()
 
 def Listen(interface):
+        global capture
 	# capture = pyshark.LiveCapture(interface='en1',display_filter='wlan.fc.type_subtype eq 4 or wlan.fc.type_subtype eq 5')
-	# capture = pyshark.LiveCapture(interface='en1', bpf_filter='subtype probereq')
 	
 	try:
-		#capture = pyshark.LiveCapture(interface=interface, bpf_filter='subtype probereq')
-		capture = pyshark.LiveCapture(interface=interface)
-		capture.set_debug()
-
-		for packet in capture.sniff_continuously():
-			parsePacket(packet)
-			#print "New packet:", packet.eth.destination
+		capture = pyshark.LiveCapture(interface=interface, bpf_filter='subtype probereq')
+		#capture.set_debug()
+                # user sniff_continuously(packet_count=5) to limit number of sniffed packets
+                capture.apply_on_packets(parsePacket)
+		#for packet in capture.sniff_continuously(): 
+		#	parsePacket(packet)
 	except pyshark.capture.capture.TSharkCrashException, e:
 		print "Error %s:" % e.args[0]
 
 def parsePacket(pkt):
-	for line in pkt:
-		print "LINE:", line
+        try:
+            #print "%s --> %s" % (pkt.wlan.get_field("sa"),pkt.wlan_mgt.get_field("ssid"))
+            match = re.search('(([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2}))', pkt.wlan.get_field("sa"))
+            print "[%s] --> <%s>" % (match.group(0), pkt.wlan_mgt.get_field("ssid").rstrip())
+        except AttributeError, ae:
+            print pkt.wlan
+            for name in pkt.wlan.field_names:
+                print "[%s] --> %s" % (name, pkt.wlan.get_field(name))
+def stop(signal, frame):
+    global capture
+    # stop channel hopping
+    print "stopping"
 
 def main():
 	global iface
 	ParseArgs()
+        signal.signal(signal.SIGINT, stop)
 	#InitDB()
 	try :
 		#InsertProbe('00:00:00:00:00:00', 'TEST0000')
